@@ -1,0 +1,709 @@
+---
+title: "Analysis of student data (Report)"
+author: 'Shreya Rao'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 1
+    toc_float: yes
+    fig_caption: yes
+    number_sections: no
+    theme: flatly
+    highlight: default
+    smart: yes
+    code_folding: hide
+  pdf_document:
+    toc: yes
+    toc_depth: '1'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+```
+
+# Introduction
+
+In this report, we examine the data obtained from an online survey conducted for students enrolled in the Data Analytics unit (DATA2x02) students in Semester 2, 2021 at The University of Sydney. The survey was conducted via the online discussion forum Ed and was open to all students enrolled in the Data Analytics unit, both mainstream and advanced (DATA2002 and DATA2902). The survey consisted of 23 questions in total.
+
+The report aims to answer four questions - 
+
+* Does the number of COVID tests a student has taken in the past two months follow a Poisson distribution?
+* Do students in the advanced unit (DATA2902) experience higher levels of stress than students in the mainstream unit (DATA2002)?
+* How do living arrangements affect the levels of loneliness that students experience?
+* Do students who find the unit easier have a higher self-rated math/coding ability?
+
+We will use a variety of hypothesis tests to determine the answers to the above questions. After examining the results, we will discuss some limitations of the tests we have performed, and some alternatives to obtain more robust results.
+
+# Initial Data Analysis (IDA)
+
+There were a total of 23 questions that the students were expected to answer in the survey. Most of the questions were free-response, while in others, the student was expected to choose a single option from many.
+
+All analysis will be conducted in R [1]. Before examining the dataset, we will first load the R packages needed to perform our analyses - `tidyverse`[2], `dplyr` [3], `ggplot2` [4], `gridExtra` [5], `janitor` [6], and `car` [7].
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(janitor)
+library(car)
+```
+
+
+Then, we begin by loading our dataset from a .csv file into R as a dataframe. We can get a glimpse of the dataset to understand the kinds of questions that were asked and how many students we have in the sample.
+
+```{r message=FALSE, warning=FALSE}
+# reading in data
+survey.data = read.csv('C:/Users/Shreya/Desktop/DATA2002/DATA2x02 survey (Responses).csv')
+
+# summary of the data
+glimpse(survey.data)
+```
+
+The column names are rather large and unwieldy, so we will shorten them to make for easier referencing in the future.
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+# renaming columns
+survey.data = survey.data %>% rename(timestamp = Timestamp,
+covid.tests = In.the.past.2.months..how.many.times.have.you.had.a.COVID.test., 
+living.arrangements = What.are.your.current.living.arrangements.,
+heights = How.tall.are.you.,
+wed.event = If.there.is.an.event.on.Wednesday..and.you.are.notified.it.has.been.moved.forward.2.days..which.day.is.the.event.,
+in.aus = Are.you.currently.in.Australia.,
+math.ability = How.do.you.self.assess.your.mathematical.ability.,
+coding.ability = How.do.you.self.assess.your.R.coding.ability.,
+data2002.review = How.are.you.finding.DATA2002.so.far.,
+uni.year = What.year.of.university.are.you.in.,
+camera.on = How.often.do.you.turn.your.camera.on.in.Zoom.tutorials.,
+vac.status = What.s.your.COVID.vaccination.status.,
+soc.media = What.is.your.favourite.social.media.platform.,
+gender = Gender,
+steak.cooked = How.do.you.like.your.steak.cooked.,
+dominant.hand = What.is.your.dominant.hand.,
+stress.levels = On.a.scale.from.0.to.10..please.indicate.how.stressed.you.have.felt.in.the.past.week.,
+loneliness.levels = On.a.scale.from.0.to.10..please.rate.your.current.feeling.of.loneliness,
+num.emails = How.many.non.spam.emails.did.you.receive.to.your.University.email.account.last.Friday.,
+email.sign.offs = What.do.you.typically.say.before.signing.off.your.name.in.an.email.,
+ds.salary = What.do.you.believe.is.the.average.entry.salary.in.Australian.Dollars.of.a.data.scientist.who.has.just.completed.their.undergraduate.degree.in.data.science.,
+unit = Which.unit.are.you.enrolled.in.,
+majors = For.which.of.your.major.s..is.this.unit.core.or.selective.,
+exercise.hours = How.many.hours.each.week.do.you.spend.exercising.)
+
+```
+
+Once we have shortened our column names, we can take a look at the first few rows of the dataset to understand what kind of data we have.
+
+```{r message=FALSE, warning=FALSE}
+# looking at first 6 rows of data
+rmarkdown::paged_table(head(survey.data))
+```
+
+In a survey, there is always the possibility that some students will not respond to every question, which can lead to missing values in our dataset. The graph below gives a spatial visualization of the missing values within our dataset.
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# initial data analysis - looking at missing data
+visdat::vis_miss(survey.data) 
+```
+
+There are two columns in particular that appear to have a lot of missing values - `excerise.hours` (the number of hours a student exercises every week) and `num.emails` (the number of non-spam emails a student received to their university account on the Friday before the survey was conducted). 
+
+We will not discard the rows with missing values at this stage since it is already a rather small dataset (211 individual subjects), and the missing values in the above mentioned columns take up a considerable proportion of the sample. Instead, we will drop/keep missing values as needed during different parts of our analysis. For all the hypothesis tests we perform, we will consider a significance level $(\alpha)$ of 0.05.
+
+## 1. Is this a random sample of DATA2x02 students?
+
+We cannot consider this sample to be a random sample of DATA2x02 students. Out of the 696 students enrolled in DATA2002 and the 58 students enrolled in DATA2902 this semester, only 211 of them responded to the survey. 
+
+While the survey was open to all students enrolled in these units, there is a possibility that people who responded differ from the people who didn't respond in certain ways. Furthermore, it is also possible that people who did respond gave inaccurate/false responses due to certain biases.
+
+For those reasons, we cannot consider this sample to be a random sample of DATA2x02 students.
+
+## 2. What are the potential biases? Which variables are most likely to be subjected to this bias?
+
+For this survey, there are three different biases that could confound the results of our analysis - 
+
+* **Non-response bias:** The survey was conducted through Ed, an online discussion forum for students enrolled in DATA2x02 this semester. Students who check Ed regularly would respond to the survey, but students who do not check Ed regularly might not. This might confound other variables such as `data2002.review` (how easy/difficult students are finding the unit so far), `math.ability` (self-rated math ability), and `coding.ability` (self-rated R coding ability). Students who check Ed regularly are maybe more likely to be up-to-date on the content and assignments, and might find the unit easier than those who are not. Non-response bias can potentially affect every variable.
+
+* **Response bias:** The way the questions are phrased could influence the answers people could give. For example, the question "How tall are you?" could influence people to provide incorrect answers or not give an answer at all. Studies have found that people, on average, tend to over-report their height in a direct survey [8].  
+
+* **Selection/sampling bias:** In this case, our sample was chosen through an online survey, which acts as a form of selection bias. Our sample is limited to a specific subset of students, i.e., students who responded to the survey. This ties in with non-response bias. This kind of bias could affect every variable in the sample.
+
+## 3. Which questions needed improvement to generate useful data (e.g. in terms of the way the question was phrased or response validation)?
+
+The question "How tall are you?" could influence the responses that students give. For example, one student gave this answer - 
+
+```{r message=FALSE, warning=FALSE}
+# student number 127
+survey.data[127, 4]
+```
+
+Another disgruntled student responded in this manner - 
+
+```{r message=FALSE, warning=FALSE}
+# student number 23
+survey.data[23, 4]
+```
+
+While 2 students out of 211 is a small proportion (0.9%), this effect could be magnified with larger samples and surveys. A more neutral way to phrase the question would be - "What is your height?" 
+
+A few other questions, such as "How do you self assess your mathematical ability?" or "How do you self assess your R coding ability?" did not provide any information on *how* the students were expected to respond, i.e., the scale or the range. It appears most students responded using a 1-10 numerical scale, but we cannot be sure whether they regarded 10 as the highest level or 1 as the highest level. This kind of ambiguity in the question could give us misleading data.
+
+# Analysis
+
+## 1. Does the number of COVID tests a student has taken in the past two months follow a Poisson distribution?
+
+The goal of this question is to determine whether the frequency of the number of COVID tests taken by students follows a Poisson distribution. The Poisson distribution is a discrete probability distribution used to model the number of events that occur within a specific time interval.  It has the following mass function:
+
+$$p(x; \ \lambda) = P(X=k) = \frac{e^{-\lambda}\ \lambda^x}{x!} \ \text{for}\ x = 0, 1, 2, \cdots$$
+
+where $\lambda$ is the average number of events we see in the given time interval [9]. We can use a $\chi^2$ goodness-of-fit test to determine whether the number of COVID tests follows a Poisson distribution.
+
+**Null hypothesis** $(H_0)$: The frequency of the number of COVID tests taken by students **follows** a Poisson distribution.
+
+**Alternative hypothesis** $(H_1)$: The number of COVID tests a student has taken in the past two months **does not follow** a Poisson distribution.
+
+**Assumptions:**
+
+* We assume that the sample consists of independent observations. This is a safe assumption to make since each student gave the survey individually, without being influenced by the answers of their peers. Our population of interest in this case is all the students enrolled in DATA2x02 this semester.
+
+* We assume that the expected frequencies (according to the Poisson distribution) are all at least 5. Using a Poisson probability distribution, we can calculate the expected probabilties and frequencies of the number of tests.
+
+
+```{r message=FALSE, warning=FALSE}
+# frequency table
+tests.table = table(survey.data$covid.tests)
+
+# adding 0 count for 9 tests
+obs.counts = c(tests.table[1:9], 0, tests.table[10])
+
+# sample size
+n = sum(tests.table)
+
+# expected counts
+lambda = mean(survey.data$covid.tests, na.rm=TRUE)
+exp.probs = c(dpois(0:10, lambda))
+exp.counts = n * exp.probs
+
+# creating dataframe
+exp.probs.round = round(exp.probs, 3)
+exp.counts.round = round(exp.counts, 3)
+tests.df =  tibble(number.of.tests=0:10, expected.probabilities=exp.probs.round, expected.counts=exp.counts.round, observed.counts=obs.counts)
+
+rmarkdown::paged_table(tests.df, options=list(rows.print=11))
+```
+
+From the table, it appears that there are some pronounced differences between our observed frequency and our expected frequency. We can visualize the differences better with a graph.
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}  
+# bar plot for differences between observed and expected
+tests.df %>% ggplot() + aes(x=0:10) + geom_col(aes(y=obs.counts, alpha=1), fill='#87dfff') + geom_point(aes(y=exp.counts), col='blue') + labs(x='Number of tests', y='Observed frequency') + theme_bw() + theme(legend.position='none') + theme(plot.title=element_text(hjust=0.5)) + ggtitle('The observed and expected counts for \n the number of COVID tests taken by students')
+```
+
+The bars (which represent the observed counts) differ quite significantly from the expected counts (given by the blue points). 
+However, one assumption has not been met. Our expected frequencies for `number.of.tests >= 4` are all less than 5. These counts are too low for us to perform a $\chi^2$ goodness-of-fit test, so we will combine some categories to ensure that the expected counts are all at least 5.
+
+```{r message=FALSE, warning=FALSE}
+# combining categories
+# categories = 0, 1, 2, 3+
+exp.counts = c(exp.counts[1:3], sum(exp.counts[-(1:3)]))
+obs.counts = c(obs.counts[1:3], sum(obs.counts[-(1:3)]))
+exp.probs =  c(exp.probs[1:3], 1-sum(exp.probs[1:3]))
+exp.probs.round = round(exp.probs, 3)
+exp.counts.round = round(exp.counts, 3)
+
+# updated dataframe
+combined.tests.df = tibble(number.of.tests=c('0', '1', '2', '3+'), expected.probabilities=exp.probs.round, expected.counts=exp.counts.round, observed.counts=obs.counts)
+
+rmarkdown::paged_table(combined.tests.df)
+```
+
+Now, there are 4 categories for the `number.of.tests` - 0, 1, 2, and 3+. With our assumptions met, we can perform a $\chi^2$-goodness-of-fit test to determine whether the frequency of COVID tests follows a Poisson distribution.
+
+```{r message=FALSE, warning=FALSE}
+# chi-squared test for goodness-of-fit
+chisq.test(x=obs.counts, p=exp.probs, correct=TRUE)
+```
+The $t$-statistic observed is 70.905, with a p-value much smaller than 0.001. The probability of obtaining a test-statistic as or more extreme than 70.905 is smaller than 0.001, i.e., $P(T \geq 71.007) \leq 0.001$.
+
+This is strong evidence against the null hypothesis. Therefore, we reject it and conclude that the frequency of COVID tests **does not follow** a Poisson distribution.
+
+## 2. Do students in the advanced unit (DATA2902) experience higher levels of stress than students in the mainstream unit (DATA2002)?
+
+The advanced unit (DATA2902) contains some extra content, including mathematical derivations and advanced coding content (such as incorporating web apps and writing original R functions). Our goal is to determine whether students in the advanced unit experience significantly higher levels of stress compared to students in the mainstream unit.
+
+To answer this question, we will divide our sample into two - DATA2002 students and DATA2902 students. Stress levels are indicated on a numerical scale of 0-10, so a one-sided two-sample $t$-test is the best option. We wish to determine what the difference is (if there is any) between the average stress levels of the two samples. Let $\mu_M$ be the mean stress level for the DATA2002 sample and $\mu_A$ be the mean stress level for the DATA2902 sample.
+ 
+**Null hypothesis** $(H_0)$: Students in the mainstream unit (DATA2002) experience the **same** levels of stress as students in the advanced unit (DATA2902) on average, or, $\mu_M = \mu_A$.
+
+**Alternative hypothesis** $(H_1)$: Students in the mainstream unit (DATA2002) experience **lower** levels of stress than students in the advanced unit (DATA2902) on average, or, $\mu_M < \mu_A$.
+
+**Assumptions:** There are two assumptions that have to be met before we can perform a two-sample $t$-test - 
+
+* Both samples are normally distributed.
+
+* Both samples are independent. 
+
+The samples can be considered independent, since each student gave their answers individually and were not influenced by the answers of their peers. The only similar factor among individuals in a sample is the unit they have chosen.
+
+We also assume that the two samples have the same variance. From the table below, we can see that the variances of the two samples are very similar.
+
+```{r message=FALSE, warning=FALSE}
+# looking at the mean, variance, and count of stress levels for students in the two units
+units.df = survey.data %>% group_by(unit) %>% summarise(Mean=mean(stress.levels), Variance=var(stress.levels), Count=n()) %>% filter(unit != '') 
+
+rmarkdown::paged_table(units.df)
+```
+
+To examine the distribution of the two samples with respect to their stress levels, we can use a histogram and a boxplot.
+
+```{r message=FALSE, warning=FALSE, fig.width=12, fig.align='center'}
+# remocing students who did not mention which unit they took
+survey.data.cleaned = survey.data %>% filter(unit != '')
+
+# boxplot
+bplot = ggplot(survey.data.cleaned, aes(x=unit, y=stress.levels, fill=unit)) + geom_boxplot() + theme(legend.position='none') + scale_fill_manual(values=c('#adedd2', '#9db8e3')) + geom_jitter(width=0.15, size=1, alpha=0.3, fill='black') + theme_bw() + theme(legend.position='none') + labs(x='', y='Stress level') + ggtitle('Stress levels among the two groups') + theme(plot.title=element_text(hjust=0.5))
+
+# histogram
+histplot = ggplot(survey.data, aes(x=stress.levels, fill=unit))+ geom_histogram(position='identity', alpha=0.5, bins=10) + theme_bw() + ggtitle('Distribution of stress levels') + theme(plot.title=element_text(hjust=0.5)) + labs(x='Stress Level', y='Frequency') + guides(fill=guide_legend(title=NULL)) + theme(legend.position='bottom')
+
+grid.arrange(bplot, histplot, nrow=1)
+```
+
+Both samples appear to roughly follow a normal distribution, although the DATA2002 sample appears slightly skewed. From the graph and the table, it appears that DATA2002 students experience higher levels of stress, which contradicts what we expected to see. However, the median of the two samples appears to be the same.
+
+To further ensure that our two samples follow a normal distribution, we can use a quantile-quantile plot.
+
+```{r message=FALSE, warning=FALSE, fig.width=12, fig.align='center'}
+# two samples - data2002 and data2902
+data2002.sample = survey.data %>% filter(unit=='DATA2002')
+data2902.sample = survey.data %>% filter(unit=='DATA2902 (Advanced)')
+
+# data2002 qq plot
+data2002.y = quantile(data2002.sample$stress.levels[!is.na(data2002.sample$stress.levels)], c(0.25, 0.75))
+data2002.x = qnorm(c(0.25, 0.75))
+# calculating slope
+data2002.slope = diff(data2002.y)/diff(data2002.x)
+# calculating intercept
+data2002.int = data2002.y[1L] - data2002.slope * data2002.x[1L]
+data2002.df = data.frame(resids=data2002.sample$stress.levels)
+
+# data2902 qq plot
+data2902.y = quantile(data2902.sample$stress.levels[!is.na(data2902.sample$stress.levels)], c(0.25, 0.75))
+data2902.x = qnorm(c(0.25, 0.75))
+# calculating slope
+data2902.slope = diff(data2902.y)/diff(data2902.x)
+# calculating intercept
+data2902.int = data2902.y[1L] - data2902.slope * data2902.x[1L]
+data2902.df = data.frame(resids=data2902.sample$stress.levels)
+
+# qqplot for data2002
+graph1 = ggplot(data2002.df, aes(sample=resids)) + stat_qq() + geom_abline(slope=data2002.slope, intercept=data2002.int) + theme_bw() + ggtitle('Quantile-Quantile plot (DATA2002)') + labs(x='Theoretical quantiles', y='Stress level')
+
+# qqplot for data2902
+graph2 = ggplot(data2902.df, aes(sample=resids)) + stat_qq() + geom_abline(slope=data2902.slope, intercept=data2902.int) + theme_bw() + ggtitle('Quantile-Quantile plot (DATA2902)') + labs(x='Theoretical quantiles', y='Stress level')
+
+grid.arrange(graph1, graph2, nrow=1)
+```
+
+Our observations seem to follow the QQ line quite well, suggesting that our samples roughly follow a normal distribution. However, there is some streaking within the graph. This is due to the fact that stress levels are expressed as discrete values on a scale of 1-10.
+
+Since our assumptions have been reasonably met, we can perform a one-sided two-sample $t$-test to check for a significant difference between the two means.
+
+```{r message=FALSE, warning=FALSE}
+# two-sample t-test with equal variance, with true difference in means < 0
+t.test(data2002.sample$stress.levels, data2902.sample$stress.levels, var.equal=TRUE, alternative='less')
+```
+
+The $t$-statistic observed is 2.18, with a p-value of 0.98. The probability of obtaining a test-statistic as or less extreme than 2.18 is around 0.98, i.e., $P(t_{208} \leq 2.18) = 0.98$.
+
+The p-value is much larger than our chosen significance level of 0.05, so we accept the null hypothesis and reject the alternative hypothesis $H_1$. The students in the DATA2902 sample do not experience higher levels of stress compared to the DATA2002 students.
+
+As seen from the graphs above, the average stress level of the DATA2002 students is higher than that of the DATA2902 students. We can perform the two-sample $t$-test again, with a different alternative hypothesis.
+
+**Null hypothesis** $(H_0)$: Students in the mainstream unit (DATA2002) experience the **same** levels of stress as students in the advanced unit (DATA2902) on average; or, $\mu_M = \mu_A$.
+
+**Alternative hypothesis** $(H_2)$: Students in the mainstream unit (DATA2002) experience **higher** levels of stress than students in the advanced unit (DATA2902) on average; or, $\mu_M > \mu_A$.
+
+```{r message=FALSE, warning=FALSE}
+# two-sample t-test with equal variance, with true difference in means > 0
+t.test(data2002.sample$stress.levels, data2902.sample$stress.levels, var.equal=TRUE, alternative='greater')
+```
+
+The $t$-statistic observed is 2.18, with a p-value of 0.015, which is lower than our chosen significance level of 0.05. This is evidence against the null hypothesis. Therefore, we reject the null hypothesis and accept the alternative hypothesis. It appears that students in the mainstream unit experience (on average) higher levels of stress than students in the advanced unit.
+
+Since this unit relies heavily on prior R coding experience and mathematical knowledge, advanced students might experience lower levels of stress since they are already well-versed in R and might have done advanced statistics/math pre-requisite courses. Mainstream students might not have the same level of coding experience and statistical knowledge, and might be experiencing higher stress levels as a result.
+
+## 3. How do living arrangements affect the levels of loneliness that students experience?
+
+With the advent of the COVID-19 pandemic, more and more people are experiencing higher levels of loneliness and isolation, especially young adults [10]. Before the pandemic, the World Health Organization also declared that isolation and loneliness was a major public health crisis [11]. 
+
+The aim of this question is to determine how different living arrangements can affect loneliness levels. We can examine the distribution of different living arrangements in our sample - 
+
+```{r message=FALSE, warning=FALSE}
+# removing students who did not give information on living arrangements
+loneliness.filtered = survey.data %>% filter(living.arrangements!='')
+
+# frequency table for different living arrangements
+loneliness.table = janitor::tabyl(loneliness.filtered$living.arrangements) 
+colnames(loneliness.table) = c('Living arrangement', 'Count', 'Percentage')
+rmarkdown::paged_table(loneliness.table) 
+```
+
+From the table above, we can see that there are 9 unique living arrangements in the sample. However, a few of them have very small sample sizes - "Alternate between parents and partner", "homestay", "with sister", which have just 1 student in each group.
+
+We will combine a few categories to ensure that we have a large enough sample size in each group. We will create a new category "with family", that includes all students who live with family (one/both parents, or sister). 
+
+We will also discard those subjects who live in homestays or who alternate between living with parents and their partner, since they cannot be reasonably combined with any other category, and their sample sizes are too small to consider them as individual categories.
+
+```{r message=FALSE, warning=FALSE}
+# removing students living in homestay/alternating between living with parents and their partner 
+loneliness.filtered = loneliness.filtered %>% filter(living.arrangements != 'Alternate between parents and partner' & living.arrangements != 'homestay')
+
+# combining categories
+loneliness.df = loneliness.filtered %>% mutate(living=case_when(living.arrangements=='With one parent' | living.arrangements=='With parents' | living.arrangements=='with sister' ~ 'With family',
+living.arrangements=='Alone' ~ 'Alone',
+living.arrangements=='College or student accomodation' ~ 'College or student accomodation',
+living.arrangements=='Share house' ~ 'Share house',
+living.arrangements=='With partner' ~ 'With partner'))
+
+# frequency table of new living arrangements
+combined.loneliness.table = janitor::tabyl(loneliness.df$living)  
+colnames(combined.loneliness.table) = c('Living arrangement', 'Count', 'Percentage')
+rmarkdown::paged_table(combined.loneliness.table) 
+```
+
+Now, we have 5 different categories, with each of them containing a reasonable number of subjects. 
+
+In the survey, loneliness levels were indicated on a numerical scale of 0-10. We can use a boxplot to visualize the distribution of loneliness levels among different living arrangements.
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# boxplot for loneliness levels
+ggplot(loneliness.df, aes(x=reorder(living, loneliness.levels) , y=loneliness.levels, fill=living)) + geom_boxplot() + theme_bw() + labs(x='', y='Loneliness level') + ggtitle('Distribution of loneliness levels \n among different living arrangements') + theme(plot.title=element_text(hjust=0.5)) + theme(legend.position='none') + coord_flip() + scale_fill_brewer(palette='Set3')
+```
+
+As expected, students who are living alone seem to experience the highest levels of loneliness. However, students living with family come second (although students living in shared houses have a higher median). 
+
+Next, we will categorize living arrangements by the levels of loneliness that people experience. Since there are more than two types of living arrangements, we cannot perform a two-sample $t$-test. Instead, we will convert loneliness levels into a categorical variable with three possible values. Students who reported loneliness levels between 1-4 will be placed in the 'Low' group, levels 5-7 will be placed in the 'Medium' group, and levels 8-10 will be placed in the 'High' group.
+
+With this arrangement, we can conduct a $\chi^2$ test of homogeneity.
+
+**Null hypothesis** $(H_0)$: There is no difference in the levels of loneliness that students in different living arrangements experience, i.e., loneliness levels are homogeneous across all categories.
+
+**Alternative hypothesis** $(H_1)$: Students in different living arrangements experience different levels of loneliness, i.e., at least one equality does not hold.
+
+**Assumptions:**
+
+* Individuals in each sample are independently sampled. This assumption is met since each student took the survey individually. 
+* The expected count for each category is at least 5.
+
+We categorize students by their living arrangement and the range of loneliness they experience - 
+
+```{r message=FALSE, warning=FALSE}
+# converting loneliness scale into categorical variable
+loneliness.ranges = loneliness.df %>% mutate(loneliness.range=case_when(loneliness.levels==1 | loneliness.levels==2 | loneliness.levels==3 | loneliness.levels==4 ~ 'Low', loneliness.levels==5 | loneliness.levels==6 | loneliness.levels==7 ~ 'Mid',
+loneliness.levels==8 | loneliness.levels==9 | loneliness.levels==10 ~ 'High')) %>% filter(living.arrangements != '')
+
+# frequency table for loneliness range+living arrangements
+range.table = loneliness.ranges %>% janitor::tabyl(living, loneliness.range) 
+range.table.totals = range.table %>% janitor::adorn_totals(where=c('row', 'col'))
+colnames(range.table.totals) = c('Living arrangement', 'High', 'Low', 'Medium', 'Total')
+range.df = as.data.frame(range.table.totals)
+range.df = range.df[, c('Living arrangement', 'Low', 'Medium', 'High', 'Total')]
+rmarkdown::paged_table(range.df)
+```
+
+Now, we will calculated the frequency we expect to see in each category, using the formula - 
+
+$$\text{count in each cell} = \frac{\text{row total} \times \text{column total}}{\text{total sample size}}$$
+
+```{r message=FALSE, warning=FALSE}
+# creating matrix
+cols = c(range.table$Low, range.table$Mid, range.table$High)
+range.matrix = matrix(cols, ncol=3)
+
+# getting row sum and column sum
+row.sum = apply(range.matrix, 1, sum)
+col.sum = apply(range.matrix, 2, sum)
+
+row.totals = matrix(row.sum, nrow=5, ncol=3, byrow=FALSE)
+col.totals = matrix(col.sum, nrow=5, ncol=3, byrow=TRUE)
+
+# expected counts
+n = sum(range.matrix)
+exp.counts = (row.totals*col.totals)/n
+exp.matrix = as.matrix(exp.counts)
+exp.matrix = rbind(exp.matrix, col.sum)
+exp.matrix = cbind(exp.matrix, c(row.sum, n))
+rownames(exp.matrix) = c('Alone', 'College or student accomodation', 'Share house', 'With family', 'With partner', 'Total')
+colnames(exp.matrix) = c('Low', 'Medium', 'High', 'Total')
+
+exp.df = as.data.frame(exp.matrix)
+rmarkdown::paged_table(exp.df)
+```
+
+From the table, we can see that not all expected counts are at least 5. Instead of performing a $\chi^2$ test of homogeneity, we will perform Fisher's Test, since it is better suited for small sample sizes.
+
+```{r message=FALSE, warning=FALSE}
+# fisher's test
+fisher.test(range.matrix, workspace=2e8)
+```
+
+The p-value obtained from the test is 0.77, which is larger than our chosen significance level of 0.05. Therefore, we do not reject the null hypothesis. It appears that there is no significant difference in the levels of loneliness experienced by students in different living arrangements.
+
+To increase the robustness of our result, we will also perform a Monte-Carlo simulation with 1,000 replicates, and examine the distribution of the test statistics and the p-values we obtain. 
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+set.seed(2002)
+
+# vector of p-values and t0 values
+p.values = numeric(1000)
+t0.values = numeric(1000)
+
+# simulating 1000 tables with the same row and column totals as the observed counts
+sims.list = r2dtable(1000, rowSums(range.matrix), colSums(range.matrix))
+
+# performing chi-squared test of homogeneity 1000 times
+for (i in 1:1000) {
+  output = chisq.test(sims.list[[i]])
+  t0.values[i] = output$statistic
+  p.values[i] = output$p.value
+}
+
+```
+
+```{r message=FALSE, warning=FALSE, fig.width=12, fig.align='center'}
+# histogram of t0 values
+t0.plot = ggplot() + aes(t0.values) + geom_histogram(binwidth=0.1, fill='pink') + theme_bw() + ggtitle('Distribution of test statistics based on 1000 simulated replicates') + labs(x='test statistic', y='Frequency') + theme(plot.title=element_text(hjust=0.5))
+
+# histogram of p-values
+p.plot = ggplot() + aes(p.values) + geom_histogram(binwidth=0.01, fill='lightblue') + theme_bw() + ggtitle('Distribution of p-values based on 1000 simulated replicates') + labs(x='p-value', y='Frequency') + theme(plot.title=element_text(hjust=0.5)) + geom_vline(xintercept=0.05)
+  
+grid.arrange(t0.plot, p.plot, nrow=1)
+```
+
+From the histograms, we can see that the test-statistic mostly has a range between 0 and 20, but the p-value shows a lot of variation, with values ranging from 0 to nearly 1. Compared to the rest of the graph, the frequency of those p-values that are less than 0.05 is much smaller. 
+
+```{r message=FALSE, warning=FALSE}
+# number of p-values less than or equal to 0.05
+p.values.less = p.values[p.values <= 0.05]
+# number of p-values more than 0.05
+p.values.more = p.values[p.values > 0.05]
+
+# count
+p.matrix = matrix(c(length(p.values.less), length(p.values.more)), nrow=1)
+colnames(p.matrix) = c('number of p-values <= 0.05', 'number of p-values > 0.05')
+p.df = as.data.frame(p.matrix)
+rmarkdown::paged_table(p.df)
+```
+
+About 96.2% of p-values are larger than 0.05. This is further evidence in favor of the null hypothesis.
+
+We can perform a $\chi^2$ test with 10,000 simulated replicates. 
+
+```{r message=FALSE, warning=FALSE}
+# chi-squared test of homogeneity with 10,000 replicates
+set.seed(202)
+chisq.test(range.matrix, simulate.p.value=TRUE, B=10000)
+```      
+
+The p-value from this test is barely more than our significance level of 0.05. Based on the p-values from Fisher's Test and the Monte-Carlo simulations based on 1,000 and 10,000 replicates, we accept the null hypothesis. There is no statistical evidence that living arrangements affect the levels of loneliness that students feel.
+
+To obtain stronger results, we need a larger sample size that is not influenced by sampling and non-response bias.
+
+## 4. Do students who find the unit easier have a higher self-rated math/coding ability?
+
+### Coding ability
+
+The unit makes heavy use of R and assumes that all students have some coding experience and are well versed in basic linear algebra. Our goal is to determine how coding experience and mathematical knowledge influence a student's opinion of the unit.
+
+Coding ability was measured on a numerical scale, with an assumed range of 1-10 (assuming 1 to be the lowest and 10 to be the highest). Students were also asked to give their opinion on how easy they found the unit so far, and were allowed to choose one of three options - "Easy", "Standard", and "Difficult". 
+
+Since there are three groups, we will be performing a one-way ANOVA test [12, 13] (instead of a $t$-test) to determine any statistical differences among the three categories. Our independent variable in this case is the students' review of the unit so far. Let the mean coding ability of the "Standard" group be $\mu_S$, the mean coding ability of the "Easy" group be $\mu_E$, the mean coding ability of the "Difficult" group be $\mu_D$.
+
+We will only be looking at students enrolled in the mainstream unit (DATA2002). We expect students in the advanced unit to have better coding/mathematical skills in general, since they require higher grades in previous statistics units to be able to enroll in the advanced unit. The unit that students are enrolled in might be a confounding factor in our results.
+
+**Null hypothesis** $(H_0)$: The average coding ability is the same across all three groups, i.e., $\mu_S = \mu_E = \mu_D$.
+
+**Alternative hypothesis** $(H_1)$: The average coding ability is not the same across all three groups, i.e., at least one equality does not hold.
+
+**Assumptions:**
+
+* Each sample is drawn independently of the other. This assumption is satisfied since each student gave their answers independently and anonymously.
+* All samples have equal variance, and follow a normal distribution.
+
+To verify these assumptions, we first take a look at the variances of the three groups.
+
+```{r message=FALSE, warning=FALSE}
+# students who found the unit "Standard"
+coding.standard = survey.data %>% filter(data2002.review=='Standard', coding.ability != '', unit=='DATA2002')
+# students who found the unit "Easy"
+coding.easy = survey.data %>% filter(data2002.review=='Easy', coding.ability != '', unit=='DATA2002')
+# students who found the unit "Difficult"
+coding.difficult = survey.data %>% filter(data2002.review=='Difficult', coding.ability != '', unit=='DATA2002')
+
+# looking at variance of the three groups
+coding.table = matrix(c(var(coding.easy$coding.ability), var(coding.standard$coding.ability), var(coding.difficult$coding.ability), length(coding.easy$coding.ability), length(coding.standard$coding.ability), length(coding.difficult$coding.ability)), nrow=2, byrow=TRUE)
+rownames(coding.table) = c('Variance', 'Count')
+colnames(coding.table) = c('Easy', 'Standard', 'Difficult')
+coding.df = as.data.frame(coding.table)
+
+rmarkdown::paged_table(coding.df)
+```
+
+The variances of the three groups aren't very similar, but they are similar enough. The ratio of the largest to the smallest variance is less than 3 [13]. The number of individuals in each sample ("Standard", "Easy", "Difficult") are all greater than or equal to 10.  
+
+We can also check the normality assumption with the help of a boxplot.
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# all students who rated the unit and gave self-rated coding ability
+coding.data = survey.data %>% filter(coding.ability != '', data2002.review != '')
+
+# boxplot for distribution of coding ability by group
+ggplot(coding.data, aes(x=reorder(data2002.review, -coding.ability), y=coding.ability, fill=data2002.review)) + geom_boxplot(notch=TRUE) + theme_bw() + labs(x='', y='Coding ability') + ggtitle('Coding ability among different levels of difficulty for DATA2x02') + theme(plot.title=element_text(hjust=0.5)) + theme(legend.position='none') + scale_fill_brewer(palette='Set2')
+```
+
+The graph shows that the three samples mostly follow a normal population. They are also symmetrical. As expected, students who found the unit easy also rated themselves much higher than the other two groups when it came to coding ability. There are a few outliers of interest - two students rated their coding ability t be below 5, but also stated that they found the unit easy. There is no overlap between the notches, so the median of the three groups is also significantly different.
+
+We can perform Levene's Test [14] to ensure that our population really does follow a normal distribution.
+
+```{r message=FALSE, warning=FALSE}
+# Levene's test for normality
+car::leveneTest(coding.ability~data2002.review, coding.data)
+```
+
+With Levene's test, we get a p-value of approximately 0.9, which is much larger than our significance level of 0.05. Therefore, we can accept that our data comes from a normal distribution, and we can perform a one-way ANOVA. 
+
+```{r message=FALSE, warning=FALSE}
+# one-way ANOVA
+res.anova = aov(coding.ability~data2002.review, data=coding.data)
+summary(res.anova)
+```
+
+From the ANOVA, we can see that our p-value is much smaller than 0.001. This suggests that there are some statistical differences in coding ability among the three groups.
+
+We will perform Tukey's multiple comparison test [15, 16] to determine the nature and magnitude of these differences.
+
+```{r}
+# Tukey's test for multiple comparisons
+TukeyHSD(res.anova)
+```
+
+From the results of the test, we can see there are significant differences in coding ability among all three groups. Students who found the unit easy, on average, rated themselves 2.25 points higher than those who found the unit difficult. This comparison has the smallest p-value and the largest difference in coding ability.
+
+Therefore, coding ability is significantly different among the three groups, i.e., students who find the unit "Easy", "Standard", and "Difficult". Having a background in coding is significantly beneficial. 
+
+We will repeat this workflow to test for significant differences in mathematical ability among the three groups.
+
+### Mathematical ability
+
+**Null hypothesis** $(H_0)$: The average mathematical ability is the **same** across all three groups, i.e., $\mu_S = \mu_E = \mu_D$.
+
+**Alternative hypothesis** $(H_1)$: The average mathematical ability is **not the same** across all three groups, i.e., at least one equality does not hold.
+
+```{r message=FALSE, warning=FALSE}
+# students who found the unit "Standard"
+math.standard = survey.data %>% filter(data2002.review=='Standard', math.ability != '', unit=='DATA2002')
+# students who found the unit "Easy"
+math.easy = survey.data %>% filter(data2002.review=='Easy', math.ability != '', unit=='DATA2002')
+# students who found the unit "Difficult"
+math.difficult = survey.data %>% filter(data2002.review=='Difficult', math.ability != '', unit=='DATA2002')
+
+# looking at variance of the three groups
+math.table = matrix(c(var(math.easy$math.ability), var(math.standard$math.ability), var(math.difficult$math.ability), length(math.easy$math.ability), length(math.standard$math.ability), length(math.difficult$math.ability)), nrow=2, byrow=TRUE)
+rownames(math.table) = c('Variance', 'Count')
+colnames(math.table) = c('Easy', 'Standard', 'Difficult')
+math.df = as.data.frame(math.table)
+
+rmarkdown::paged_table(math.df)
+```
+
+The variances of the three groups aren't very similar, but they are similar enough. The ratio of the largest to the smallest variance is less than 3 [13]. The number of individuals in each sample ("Standard", "Easy", "Difficult") are all greater than or equal to 10.
+
+As before, we can check for normality using a boxplot.
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# all students who rated the unit and gave their self-rated math ability
+math.data = survey.data %>% filter(math.ability != '', data2002.review != '', unit=='DATA2002')
+
+# boxplot for math ability divided by group
+ggplot(math.data, aes(x=reorder(data2002.review, -math.ability), y=math.ability, fill=data2002.review)) + geom_boxplot() + theme_bw() + labs(x='', y='Math ability') + ggtitle('Math ability among different levels of difficulty for DATA2002') + theme(plot.title=element_text(hjust=0.5)) + theme(legend.position='none') + scale_fill_brewer(palette='Set1')
+```
+
+As we saw with coding ability, students who found the unit easy rated themselves higher in mathematical ability than the other two groups. However, the differences between the three groups is less distinct here compared to coding ability. 
+
+For a formal proof of normal distribution, we can use Levene's test, as before.
+
+```{r message=FALSE, warning=FALSE}
+# Levene's test for normality
+car::leveneTest(math.ability~data2002.review, math.data)
+```
+
+Once again, our p-value is larger than 0.05, which proves that our distribution follows a roughly normal distribution. Now that we have met our assumptions, we can perform a one-way ANOVA.
+
+```{r message=FALSE, warning=FALSE}
+# one-way ANOVA
+res1.anova = aov(math.ability~data2002.review, data=math.data)
+summary(res1.anova)
+```
+
+From the ANOVA, we can see that our p-value is much smaller than 0.05. 
+Once again, we will perform Tukey's multiple comparison test to determine the statistical differences in mathematical ability between the three groups.
+
+```{r message=FALSE, warning=FALSE}
+# Tukey's test for multiple comparisons
+TukeyHSD(res1.anova)
+```
+
+From the results of the test, we can see there are significant differences in mathematical ability among the Easy-Difficult and Standard-Difficult groups. Students who found the unit easy, on average, rated themselves 2.08 points higher than those who found the unit difficult (p-value = 0.001). Students who found the unit standard, on average, rated themselves 0.92 points higher than those who found the unit difficult (p-value = 0.003). 
+
+However, it does not appear that there any significant differences in mathematical ability between students who found the unit easy and those who found the unit standard. 
+
+In general, both coding ability and mathematical knowledge are significantly beneficial for this unit, but a higher coding ability seems to be slightly more beneficial than higher mathematical ability
+
+# Conclusion and Limitations
+
+There are some limitations to the strength of our test results. For question 2 (Do students in the advanced unit experience higher levels of stress than students in the mainstream unit?) our sample sizes are not similar. The number of students who responded who are taking the advanced unit is far less than the number of students in the sample who are enrolled in the mainstream unit.
+
+The fact that students self-reported their coding/mathematical ability could confound the results of the fourth question (Do students who find the unit easier have a higher self-rated math/coding ability?) due to the presence of self-reporting bias [17]. Students might feel compelled to rate themselves higher than they really are, or to report the unit as being easier than they really think due to peer pressure (even though observations are anonymized). To obtain an unbiased result, we could instead use students' grades or marks in other units (such as the prerequisites) to determine their prior coding/mathematical ability. Then, we could compare it to their performance in DATA2x02 to determine how prior coding/mathematical ability influences their performance in this unit.
+
+To determine how various factors affect loneliness/stress levels, we need to ensure that there is a uniform rating scale. For example, one student might consider 1 to be the highest level; another might consider 10 to be the highest level. 
+
+There are some conclusions that we can draw from the tests. We know that the number of COVID tests taken by students over the past two months does not follow a Poisson distribution. And, contrary to what we expected to see, students in the mainstream unit appear to experience higher levels of stress than students in the advanced unit. We also found that, on average, students who found the unit easy rated themselves 2 points higher in coding/mathematical ability than students who found the unit difficult. This suggests that prior coding experience and mathematical knowledge is significantly beneficial for this unit.
+
+# References
+*Style: IEEE*
+
+[1] R Core Team (2021). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+[2] Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+
+[3] Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2021). dplyr: A Grammar of Data Manipulation. R package version 1.0.7. https://CRAN.R-project.org/package=dplyr
+
+[4] H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+[5] Baptiste Auguie (2017). gridExtra: Miscellaneous Functions for "Grid" Graphics. R package version 2.3. https://CRAN.R-project.org/package=gridExtra
+ 
+[6] Sam Firke (2021). janitor: Simple Tools for Examining and Cleaning Dirty Data. R package version 2.1.0. https://CRAN.R-project.org/package=janitor
+
+[7] John Fox and Sanford Weisberg (2019). An {R} Companion to Applied Regression, Third Edition. Thousand Oaks CA: Sage. URL: https://socialsciences.mcmaster.ca/jfox/Books/Companion/
+
+[8] S. Gorber, M. Tremblay, D. Moher and B. Gorber, "A comparison of direct vs. self-report measures for assessing height, weight and body mass index: a systematic review", Obesity Reviews, vol. 8, no. 4, pp. 307-326, 2007. Available: 10.1111/j.1467-789x.2007.00347.x [Accessed 18 September 2021].
+ 
+[9] NIST, "Poisson Distribution", NIST/SEMATECH e-Handbook of Statistical Methods, vol. 1.3, no. 1.3.6.6, pp. 1.3.6.6.19, 2003. Available: https://www.itl.nist.gov/div898/handbook/index.htm [Accessed 18 September 2021].
+
+[10] C. Walsh, "Young adults hardest hit by loneliness during pandemic", The Harvard Gazette. [online]. Available: https://news.harvard.edu/gazette/story/2021/02/young-adults-teens-loneliness-mental-health-coronavirus-covid-pandemic/ [Accessed 18 September 2021]. 
+
+[11] P. Courtet, E. Debien, and G. Vaiva, "Keep socially (but not physically) connected and carry on: Preventing suicide in the age of COVID-19", Clin. Psychiatry 81:20com13370. Available: 10.4088/JCP.20com13370.
+
+[12] “ANOVA test: Definition, Types, Examples,” ANOVA Test: Definition, Types, Examples, 19-Jun-2021. [Online]. Available: https://www.statisticshowto.com/probability-and-statistics/hypothesis-testing/anova/. [Accessed: 18-Sep-2021]. 
+
+[13] M. Maikano, "Assumptions for ANOVA | Real Statistics Using Excel", Real-statistics.com, 2021. [Online]. Available: https://www.real-statistics.com/one-way-analysis-of-variance-anova/assumptions-anova/#:~:text=To%20use%20the%20ANOVA%20test,drawn%20independently%20of%20each%20other. [Accessed: 18-Sep-2021].
+
+[14] "How to Do Levene’s Test in R - Data Sharkie", Data Sharkie. [Online]. Available: https://datasharkie.com/how-to-do-levene-test-in-r/. [Accessed: 18-Sep-2021].
+
+[15] NIST, "Tukey's method", NIST/SEMATECH e-Handbook of Statistical Methods, vol. 7.4, no. 7.4.7, pp. 7.4.7.1, 2003. Available: https://www.itl.nist.gov/div898/handbook/prc/section4/prc471.htm [Accessed 18 September 2021].
+
+[16] F. Barros, "ANOVA and Tukey’s test on R | R-bloggers", R-bloggers, 2013. [Online]. Available: https://www.r-bloggers.com/2013/06/anova-and-tukeys-test-on-r/. [Accessed: 18-Sep-2021].
+
+
+[17] A. Althubaiti, "Information bias in health research: definition, pitfalls, and adjustment methods", Journal of Multidisciplinary Healthcare, vol. 9, pp. 211-217, 2016. Available: 10.2147/jmdh.s104807 [Accessed 19 September 2021].
+
