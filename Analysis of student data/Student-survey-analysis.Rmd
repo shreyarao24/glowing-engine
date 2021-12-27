@@ -1,20 +1,8 @@
 ---
 title: "Analysis of student data (Report)"
 author: 'Shreya Rao'
-output:
-  html_document:
-    toc: yes
-    toc_depth: 1
-    toc_float: yes
-    fig_caption: yes
-    number_sections: no
-    theme: flatly
-    highlight: default
-    smart: yes
-    code_folding: hide
-  pdf_document:
-    toc: yes
-    toc_depth: '1'
+output: rmdformats::readthedown
+
 ---
 
 ```{r setup, include=FALSE}
@@ -54,7 +42,7 @@ Then, we begin by loading our dataset from a .csv file into R as a dataframe. We
 
 ```{r message=FALSE, warning=FALSE}
 # reading in data
-survey.data = read.csv('C:/Users/Shreya/Desktop/DATA2002/DATA2x02 survey (Responses).csv')
+survey.data = read.csv('survey responses.csv')
 
 # summary of the data
 glimpse(survey.data)
