@@ -4,7 +4,7 @@ This repository contains all the data analysis and data collection projects that
 
 ## Data Extraction from PDFs using Python
 
-This prohecr involved extracting data from multiple PDF files and converting them to CSV files for further use and analysis.
+This project involved extracting data from multiple PDF files and converting them to CSV files for further use and analysis.
 
 ## The Spread of COVID-19 in India
 
